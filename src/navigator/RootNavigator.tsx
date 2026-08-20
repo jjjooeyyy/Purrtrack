@@ -80,7 +80,9 @@ export default function RootNavigator() {
 
   return (
     <Stack.Navigator
-      initialRouteName={hasMemberships ? "MainTabs" : "AddCatProfile"}
+      initialRouteName={
+        !user ? "Login" : hasMemberships ? "MainTabs" : "AddCatProfile"
+      }
       screenOptions={{ headerShown: false }}
     >
       {!user ? (
