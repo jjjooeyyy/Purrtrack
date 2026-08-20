@@ -1,0 +1,69 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // --- Utility functions ---
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isMember(petId) {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/petMemberships/$(petId));
+    }
+
+    function isPetOwner(petId) {
+      return signedIn() && get(/databases/$(database)/documents/pets/$(petId)).data.createdByUid == request.auth.uid;
+    }
+
+    function isPetOwnerDoc() {
+      return signedIn() && resource.data.createdByUid == request.auth.uid;
+    }
+
+    // --- User profile and memberships ---
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      // Only the user can access their own petMemberships
+      match /petMemberships/{petId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // --- Pets collection ---
+    match /pets/{petId} {
+      // Any signed-in user who knows the petId can read and update
+      allow read: if signedIn();
+      // Only allow create if the creator is the signed-in user
+      allow create: if signedIn() && request.resource.data.createdByUid == request.auth.uid
+        // Validate required fields (add more as needed)
+        && request.resource.data.name is string;
+      // Allow update if signed in (anyone who knows petId)
+      allow update: if signedIn();
+      // Only owner can delete
+      allow delete: if isPetOwnerDoc();
+
+      // --- Members subcollection ---
+      match /members/{uid} {
+        // Only the user, a member, or the pet owner can read
+        allow read: if request.auth.uid == uid || isMember(petId) || isPetOwner(petId);
+        // Only the user can add themselves
+        allow create: if request.auth.uid == uid;
+        // Only the user or pet owner can update/delete
+        allow update, delete: if request.auth.uid == uid || isPetOwner(petId);
+      }
+
+      // --- Logs subcollection ---
+      match /logs/{logId} {
+        // Only members or owners can read/write logs
+        allow read, write: if isMember(petId) || isPetOwner(petId)
+          // Prevent privilege escalation: cannot change petId or createdByUid
+          && (!('petId' in request.resource.data) || request.resource.data.petId == petId)
+          && (!('createdByUid' in request.resource.data) || request.resource.data.createdByUid == request.auth.uid);
+      }
+    }
+  }
+}
